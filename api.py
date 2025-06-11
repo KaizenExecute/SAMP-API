@@ -1,48 +1,59 @@
-from fastapi import FastAPI, Query, HTTPException
-from samp_client.client import SampClient
-from samp_client.exceptions import SampError
-from pydantic import BaseModel
-from typing import List
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from samp_query import SampQuery
 
-app = FastAPI(title="SA-MP/Open.MP Server Info API")
+app = FastAPI(title="SA-MP/Open.MP Server Status API")
 
-class PlayerInfo(BaseModel):
-    id: int
-    name: str
-    score: int
-    ping: int
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-class ServerInfo(BaseModel):
-    ip: str
-    port: int
-    hostname: str
-    gamemode: str
-    language: str
-    players: int
-    max_players: int
-    player_list: List[PlayerInfo]
+@app.get("/")
+def root():
+    return {"message": "SA-MP/Open.MP API is running."}
 
-@app.get("/serverinfo", response_model=ServerInfo)
-def get_server_info(ip: str = Query(...), port: int = Query(...)):
+@app.get("/api/server")
+def get_server_info(
+    ip: str = Query(..., description="IP address of the SA-MP/Open.MP server"),
+    port: int = Query(7777, description="Port of the server")
+):
     try:
-        with SampClient(address=ip, port=port, timeout=2) as client:
-            info = client.get_server_info()
-            players = client.get_players()
+        with SampQuery(ip, port) as query:
+            info = query.get_server_info()
+            rules = query.get_rules()
 
-            player_list = [
-                PlayerInfo(id=p.id, name=p.name, score=p.score, ping=p.ping)
-                for p in players
-            ]
+            return {
+                "hostname": info.hostname,
+                "gamemode": info.gamemode,
+                "mapname": info.mapname,
+                "passworded": info.passworded,
+                "players": info.players,
+                "max_players": info.max_players,
+                "rules": rules
+            }
 
-            return ServerInfo(
-                ip=ip,
-                port=port,
-                hostname=info.hostname,
-                gamemode=info.gamemode,
-                language=info.language,
-                players=info.players,
-                max_players=info.max_players,
-                player_list=player_list
-            )
-    except SampError:
-        raise HTTPException(status_code=504, detail="Server not responding or timed out")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to query server: {e}")
+
+@app.get("/api/players")
+def get_player_list(
+    ip: str = Query(..., description="IP address of the SA-MP/Open.MP server"),
+    port: int = Query(7777, description="Port of the server")
+):
+    try:
+        with SampQuery(ip, port) as query:
+            players = query.get_players()
+
+            return {
+                "players": [
+                    {"name": player.name, "score": player.score}
+                    for player in players
+                ]
+            }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to query players: {e}")
