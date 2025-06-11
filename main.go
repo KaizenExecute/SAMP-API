@@ -2,122 +2,130 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
 	"log"
 	"net"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-type ServerInfo struct {
-	Hostname   string `json:"hostname"`
-	Gamemode   string `json:"gamemode"`
-	Mapname    string `json:"mapname"`
-	Players    uint16 `json:"players"`
-	MaxPlayers uint16 `json:"max_players"`
+func queryServer(ip string, port int) ([]byte, error) {
+	addr := net.JoinHostPort(ip, stringPort(port))
+	packet := []byte{'S', 'A', 'M', 'P'}
+	for _, b := range strings.Split(ip, ".") {
+		packet = append(packet, byte(atoi(b)))
+	}
+	packet = append(packet, byte(port&0xFF), byte((port>>8)&0xFF))
+	packet = append(packet, 'i') // 'i' = info
+
+	conn, err := net.DialTimeout("udp", addr, 2*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+	_, err = conn.Write(packet)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf[:n], nil
+}
+
+func parseString(data []byte, offset int) (string, int, error) {
+	if offset >= len(data) {
+		return "", offset, fiber.ErrBadRequest
+	}
+	length := int(data[offset])
+	offset++
+	if offset+length > len(data) {
+		return "", offset, fiber.ErrBadRequest
+	}
+	raw := data[offset : offset+length]
+	clean := make([]rune, 0, length)
+	for _, b := range raw {
+		if b >= 32 && b <= 126 {
+			clean = append(clean, rune(b))
+		}
+	}
+	return string(clean), offset + length, nil
+}
+
+func stringPort(port int) string {
+	return strconv.Itoa(port)
+}
+
+func atoi(s string) int {
+	n := 0
+	for _, r := range s {
+		n = n*10 + int(r-'0')
+	}
+	return n
 }
 
 func main() {
 	app := fiber.New()
 
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"message": "SA-MP/Open.MP API is running."})
+		return c.JSON(fiber.Map{"message": "SA-MP API is running."})
 	})
 
 	app.Get("/api/server", func(c *fiber.Ctx) error {
 		ip := c.Query("ip")
-		port := c.QueryInt("port", 7777)
-
-		if ip == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "Missing 'ip' query parameter"})
+		port := atoi(c.Query("port"))
+		if ip == "" || port == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid IP or port"})
 		}
 
-		info, err := queryServerInfo(ip, port)
+		data, err := queryServer(ip, port)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(info)
+
+		offset := 11 // skip SAMP header
+
+		hostname, offset, err := parseString(data, offset)
+		if err != nil {
+			hostname = "Unknown"
+		}
+
+		gamemode, offset, err := parseString(data, offset)
+		if err != nil {
+			gamemode = "Unknown"
+		}
+
+		mapname, offset, err := parseString(data, offset)
+		if err != nil {
+			mapname = "Unknown"
+		}
+
+		var players, maxPlayers uint16
+		if offset+4 <= len(data) {
+			players = binary.LittleEndian.Uint16(data[offset : offset+2])
+			maxPlayers = binary.LittleEndian.Uint16(data[offset+2 : offset+4])
+		}
+
+		return c.JSON(fiber.Map{
+			"hostname":    hostname,
+			"gamemode":    gamemode,
+			"mapname":     mapname,
+			"players":     players,
+			"max_players": maxPlayers,
+		})
 	})
 
-	log.Fatal(app.Listen(":3000"))
-}
-
-func queryServerInfo(ip string, port int) (*ServerInfo, error) {
-	addr := net.UDPAddr{
-		IP:   net.ParseIP(ip),
-		Port: port,
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
 	}
-	conn, err := net.DialUDP("udp", nil, &addr)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(2 * time.Second))
-
-	// Build SAMP packet
-	packet := []byte("SAMP")
-	for _, b := range net.ParseIP(ip).To4() {
-		packet = append(packet, b)
-	}
-	packet = append(packet, byte(port&0xFF), byte((port>>8)&0xFF))
-	packet = append(packet, 'i')
-
-	_, err = conn.Write(packet)
-	if err != nil {
-		return nil, err
-	}
-
-	// Receive response
-	buf := make([]byte, 4096)
-	n, _, err := conn.ReadFromUDP(buf)
-	if err != nil {
-		return nil, err
-	}
-	if n < 11 {
-		return nil, fmt.Errorf("invalid response length")
-	}
-
-	offset := 11
-
-	readString := func() (string, error) {
-		if offset >= n {
-			return "", fmt.Errorf("offset out of range")
-		}
-		length := int(buf[offset])
-		offset++
-		if offset+length > n {
-			return "", fmt.Errorf("string out of bounds")
-		}
-		s := string(buf[offset : offset+length])
-		offset += length
-		return s, nil
-	}
-
-	hostname, err := readString()
-	if err != nil {
-		return nil, err
-	}
-	gamemode, err := readString()
-	if err != nil {
-		return nil, err
-	}
-	mapname, err := readString()
-	if err != nil {
-		return nil, err
-	}
-
-	if offset+4 > n {
-		return nil, fmt.Errorf("missing player counts")
-	}
-	players := binary.LittleEndian.Uint16(buf[offset : offset+2])
-	maxPlayers := binary.LittleEndian.Uint16(buf[offset+2 : offset+4])
-
-	return &ServerInfo{
-		Hostname:   hostname,
-		Gamemode:   gamemode,
-		Mapname:    mapname,
-		Players:    players,
-		MaxPlayers: maxPlayers,
-	}, nil
+	log.Fatal(app.Listen(":" + port))
 }
