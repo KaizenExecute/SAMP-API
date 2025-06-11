@@ -51,27 +51,41 @@ def safe_read_string(data: bytes, offset: int) -> tuple[str, int]:
     except:
         return "", offset
 
-
 @app.get("/api/server")
 def get_server_info(ip: str = Query(...), port: int = Query(7777)):
     try:
         data = samp_query(ip, port, b'i')
         offset = 11
 
-        hostname, offset = safe_read_string(data, offset)
-        gamemode, offset = safe_read_string(data, offset)
-        mapname, offset = safe_read_string(data, offset)
+        def safe_read(data: bytes, offset: int) -> tuple[str, int]:
+            if offset >= len(data):
+                return "", offset
+            try:
+                length = data[offset]
+                offset += 1
+                if length == 0 or offset + length > len(data):
+                    return "", offset
+                raw = data[offset:offset + length]
+                decoded = raw.decode('utf-8', errors='ignore')
+                clean = ''.join(c for c in decoded if 32 <= ord(c) <= 126)
+                return clean.strip(), offset + length
+            except:
+                return "", offset
+
+        hostname, offset = safe_read(data, offset)
+        gamemode, offset = safe_read(data, offset)
+        mapname, offset = safe_read(data, offset)
 
         players = max_players = 0
         if offset + 4 <= len(data):
             try:
                 players, max_players = struct.unpack_from('<HH', data, offset)
-                offset += 4
             except:
-                pass
+                players = max_players = 0
 
-        if players > max_players:
-            players, max_players = 0, 0
+        # Sanity check
+        if not (0 <= players <= 5000) or not (0 <= max_players <= 5000):
+            players = max_players = 0
 
         return {
             "hostname": hostname or "Unknown",
@@ -83,7 +97,6 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
-
 
 @app.get("/api/players")
 def get_players(ip: str = Query(...), port: int = Query(7777)):
