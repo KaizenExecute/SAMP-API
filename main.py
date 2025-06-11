@@ -13,6 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def root():
     return {"message": "SA-MP/Open.MP API is running."}
@@ -26,7 +27,7 @@ def samp_query(ip: str, port: int, opcode: bytes) -> bytes:
             s.sendto(packet, (ip, port))
             data, _ = s.recvfrom(4096)
             if len(data) < 11:
-                raise ValueError("Invalid packet length.")
+                raise ValueError("Invalid response length.")
             return data
         except socket.timeout:
             raise ValueError("No response from server (timeout).")
@@ -42,9 +43,8 @@ def parse_string(data: bytes, offset: int) -> tuple[str, int]:
     if offset + length > len(data):
         return "", offset + length
     raw = data[offset:offset + length]
-    text = raw.decode('utf-8', errors='ignore')
-    clean = ''.join(c for c in text if 32 <= ord(c) <= 126)
-    return clean.strip(), offset + length
+    text = raw.decode('utf-8', errors='replace')
+    return text.strip(), offset + length
 
 
 @app.get("/api/server")
@@ -60,9 +60,6 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
         players = max_players = 0
         if offset + 4 <= len(data):
             players, max_players = struct.unpack_from('<HH', data, offset)
-
-        if not (0 <= players <= max_players <= 5000):
-            players = max_players = 0
 
         return {
             "hostname": hostname or "Unknown",
@@ -92,7 +89,7 @@ def get_players(ip: str = Query(...), port: int = Query(7777)):
             name, offset = parse_string(data, offset)
             if offset + 4 > len(data):
                 break
-            score = struct.unpack_from('<I', data[offset:offset + 4])[0]
+            score = struct.unpack_from('<I', data, offset)[0]
             offset += 4
             players.append({"name": name, "score": score})
 
