@@ -35,35 +35,33 @@ def samp_query(ip, port, opcode, attempts=3):
     raise ValueError(f"No response from server (timeout or blocked) — {last_error}")
 
 
+def safe_read_string(data, offset):
+    if offset >= len(data):
+        return "", offset
+    try:
+        length = data[offset]
+        offset += 1
+        if length == 0 or offset + length > len(data):
+            return "", offset
+        string = data[offset:offset + length].decode('utf-8', errors='ignore')
+        string = ''.join(c for c in string if 32 <= ord(c) <= 126)
+        offset += length
+        return string.strip(), offset
+    except:
+        return "", offset
+
+
 @app.get("/api/server")
 def get_server_info(ip: str = Query(...), port: int = Query(7777)):
     try:
         data = samp_query(ip, port, b'i')
         offset = 11
-        hostname = gamemode = mapname = "Unknown"
+
+        hostname, offset = safe_read_string(data, offset)
+        gamemode, offset = safe_read_string(data, offset)
+        mapname, offset = safe_read_string(data, offset)
+
         players = max_players = 0
-
-        try:
-            hostname_len = data[offset]
-            offset += 1
-            hostname = data[offset:offset + hostname_len].decode(errors='ignore')
-            offset += hostname_len
-        except: pass
-
-        try:
-            gamemode_len = data[offset]
-            offset += 1
-            gamemode = data[offset:offset + gamemode_len].decode(errors='ignore')
-            offset += gamemode_len
-        except: pass
-
-        try:
-            mapname_len = data[offset]
-            offset += 1
-            mapname = data[offset:offset + mapname_len].decode(errors='ignore')
-            offset += mapname_len
-        except: pass
-
         try:
             players, max_players = struct.unpack_from('<HH', data[offset:])
         except: pass
@@ -91,10 +89,9 @@ def get_players(ip: str = Query(...), port: int = Query(7777)):
             count = data[offset]
             offset += 1
             for _ in range(count):
-                name_len = data[offset]
-                offset += 1
-                name = data[offset:offset + name_len].decode(errors='ignore')
-                offset += name_len
+                name, offset = safe_read_string(data, offset)
+                if offset + 4 > len(data):
+                    break
                 score = struct.unpack_from('<I', data[offset:offset + 4])[0]
                 offset += 4
                 players.append({"name": name, "score": score})
