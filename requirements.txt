@@ -1,3 +1,3 @@
 fastapi
 uvicorn[standard]
-samp-query
+samp-query==1.0.2  # ✅ pinned working version
