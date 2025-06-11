@@ -126,5 +126,5 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
 	log.Println("API running at http://localhost:8080/api/server")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":3000", nil))
 }
