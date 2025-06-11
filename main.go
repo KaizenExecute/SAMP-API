@@ -23,6 +23,23 @@ type ServerInfo struct {
 	Version    string `json:"version"`
 }
 
+func readString(r io.Reader) string {
+	var lengthByte [1]byte
+	_, err := r.Read(lengthByte[:])
+	if err != nil {
+		return ""
+	}
+	length := lengthByte[0]
+
+	strBytes := make([]byte, length)
+	_, err = r.Read(strBytes)
+	if err != nil {
+		return ""
+	}
+
+	return string(strBytes)
+}
+
 func queryServer(ip string, port string) (*ServerInfo, error) {
 	addr := fmt.Sprintf("%s:%s", ip, port)
 	conn, err := net.DialTimeout("udp", addr, 2*time.Second)
@@ -64,7 +81,7 @@ func queryServer(ip string, port string) (*ServerInfo, error) {
 	}
 
 	r := bytes.NewReader(buf[:n])
-	r.Seek(11, io.SeekStart) // Skip header
+	r.Seek(11, io.SeekStart) // Skip SAMP header
 
 	var password byte
 	binary.Read(r, binary.LittleEndian, &password)
@@ -73,19 +90,11 @@ func queryServer(ip string, port string) (*ServerInfo, error) {
 	binary.Read(r, binary.LittleEndian, &players)
 	binary.Read(r, binary.LittleEndian, &maxPlayers)
 
-	readString := func(r io.Reader) string {
-		var length byte
-		binary.Read(r, binary.LittleEndian, &length)
-		data := make([]byte, length)
-		r.Read(data)
-		return string(data)
-	}
-
 	hostname := readString(r)
 	gamemode := readString(r)
 	mapname := readString(r)
 
-	// ===== Query: Rules (to get version) =====
+	// ===== Query: Rules =====
 	rulesPacket := append(append([]byte{}, packetHeader...), 'r')
 	_, err = conn.Write(rulesPacket)
 	if err != nil {
@@ -98,25 +107,16 @@ func queryServer(ip string, port string) (*ServerInfo, error) {
 		return nil, fmt.Errorf("no rules response: %v", err)
 	}
 
-	r2 := bytes.NewReader(buf[11:n])
+	r2 := bytes.NewReader(buf[11:n]) // skip header
 	var ruleCount byte
 	binary.Read(r2, binary.LittleEndian, &ruleCount)
 
 	version := "unknown"
 	for i := 0; i < int(ruleCount); i++ {
-		nameLen, _ := r2.ReadByte()
-		nameBytes := make([]byte, nameLen)
-		r2.Read(nameBytes)
-
-		valLen, _ := r2.ReadByte()
-		valBytes := make([]byte, valLen)
-		r2.Read(valBytes)
-
-		name := string(nameBytes)
-		val := string(valBytes)
-
-		if strings.ToLower(name) == "version" {
-			version = val
+		key := readString(r2)
+		value := readString(r2)
+		if strings.ToLower(key) == "version" {
+			version = value
 			break
 		}
 	}
@@ -152,6 +152,6 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
-	log.Println("API running on http://localhost:8080/api/server")
+	log.Println("API running at http://localhost:8080/api/server")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
