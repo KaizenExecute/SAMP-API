@@ -16,7 +16,7 @@ func main() {
 	app := fiber.New()
 
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"message": "SA-MP API is running."})
+		return c.JSON(fiber.Map{"message": "SA-MP/Open.MP API is running."})
 	})
 
 	app.Get("/api/server", func(c *fiber.Ctx) error {
@@ -24,7 +24,7 @@ func main() {
 		portStr := c.Query("port", "7777")
 
 		port, err := strconv.Atoi(portStr)
-		if err != nil || port <= 0 || port > 65535 {
+		if err != nil || port < 1 || port > 65535 {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid port"})
 		}
 
@@ -54,14 +54,14 @@ func main() {
 func queryServer(ip string, port int) ([]byte, error) {
 	addr := net.JoinHostPort(ip, strconv.Itoa(port))
 
-	// Build packet: SAMP + IP bytes + port + opcode
+	// SAMP header + IP + port + opcode
 	packet := []byte{'S', 'A', 'M', 'P'}
-	for _, part := range strings.Split(ip, ".") {
-		b, _ := strconv.Atoi(part)
-		packet = append(packet, byte(b))
+	for _, b := range strings.Split(ip, ".") {
+		n, _ := strconv.Atoi(b)
+		packet = append(packet, byte(n))
 	}
 	packet = append(packet, byte(port&0xFF), byte((port>>8)&0xFF))
-	packet = append(packet, 'i') // Info opcode
+	packet = append(packet, 'i')
 
 	conn, err := net.DialTimeout("udp", addr, 2*time.Second)
 	if err != nil {
@@ -119,21 +119,24 @@ func readString(data []byte, offset *int) (string, bool) {
 	if *offset >= len(data) {
 		return "", false
 	}
+
 	length := int(data[*offset])
 	*offset++
+
 	if *offset+length > len(data) {
 		return "", false
 	}
+
 	raw := data[*offset : *offset+length]
 	*offset += length
 
-	// Filter non-printable characters
-	filtered := make([]byte, 0, len(raw))
+	// Filter clean printable ASCII
+	clean := make([]byte, 0, len(raw))
 	for _, b := range raw {
 		if b >= 32 && b <= 126 {
-			filtered = append(filtered, b)
+			clean = append(clean, b)
 		}
 	}
 
-	return string(filtered), true
+	return string(clean), true
 }
