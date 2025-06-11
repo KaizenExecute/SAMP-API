@@ -1,7 +1,7 @@
 import socket
+import struct
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-import struct
 
 app = FastAPI(title="SA-MP/Open.MP API")
 
@@ -13,7 +13,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Core SA-MP Query
+@app.get("/")
+def root():
+    return {"message": "SA-MP/Open.MP API is running."}
+
+# Core SA-MP Query Protocol
 def samp_query(ip, port, opcode):
     prefix = b'SAMP' + bytes(map(int, ip.split('.'))) + struct.pack('<H', port)
     packet = prefix + opcode
@@ -22,7 +26,6 @@ def samp_query(ip, port, opcode):
         s.sendto(packet, (ip, port))
         return s.recvfrom(4096)[0]
 
-# /api/server endpoint
 @app.get("/api/server")
 def get_server_info(ip: str = Query(...), port: int = Query(7777)):
     try:
@@ -51,7 +54,6 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {e}")
 
-# /api/players endpoint
 @app.get("/api/players")
 def get_players(ip: str = Query(...), port: int = Query(7777)):
     try:
