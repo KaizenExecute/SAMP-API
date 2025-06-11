@@ -1,3 +1,4 @@
+
 import socket
 import struct
 from fastapi import FastAPI, HTTPException, Query
@@ -35,18 +36,18 @@ def samp_query(ip, port, opcode, attempts=3):
     raise ValueError(f"No response from server (timeout or blocked) — {last_error}")
 
 
-def safe_read_string(data, offset):
+def safe_read_string(data: bytes, offset: int) -> tuple[str, int]:
     if offset >= len(data):
         return "", offset
     try:
         length = data[offset]
         offset += 1
-        if length == 0 or offset + length > len(data):
+        if offset + length > len(data):
             return "", offset
         raw = data[offset:offset + length]
-        decoded = raw.decode('utf-8', errors='ignore')
-        clean = ''.join(c for c in decoded if 32 <= ord(c) <= 126)
-        return clean.strip(), offset + length
+        text = raw.decode('utf-8', errors='ignore')
+        text = ''.join(c for c in text if 32 <= ord(c) <= 126)
+        return text.strip(), offset + length
     except:
         return "", offset
 
@@ -64,17 +65,18 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
         players = max_players = 0
         if offset + 4 <= len(data):
             try:
-                players, max_players = struct.unpack_from('<HH', data[offset:offset + 4])
+                players, max_players = struct.unpack_from('<HH', data, offset)
+                offset += 4
             except:
-                players, max_players = 0, 0
+                pass
 
         if players > max_players:
             players, max_players = 0, 0
 
         return {
-            "hostname": hostname,
-            "gamemode": gamemode,
-            "mapname": mapname,
+            "hostname": hostname or "Unknown",
+            "gamemode": gamemode or "Unknown",
+            "mapname": mapname or "Unknown",
             "players": players,
             "max_players": max_players
         }
