@@ -43,10 +43,10 @@ def safe_read_string(data, offset):
         offset += 1
         if length == 0 or offset + length > len(data):
             return "", offset
-        string = data[offset:offset + length].decode('utf-8', errors='ignore')
-        string = ''.join(c for c in string if 32 <= ord(c) <= 126)
-        offset += length
-        return string.strip(), offset
+        raw = data[offset:offset + length]
+        decoded = raw.decode('utf-8', errors='ignore')
+        clean = ''.join(c for c in decoded if 32 <= ord(c) <= 126)
+        return clean.strip(), offset + length
     except:
         return "", offset
 
@@ -62,9 +62,14 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
         mapname, offset = safe_read_string(data, offset)
 
         players = max_players = 0
-        try:
-            players, max_players = struct.unpack_from('<HH', data[offset:])
-        except: pass
+        if offset + 4 <= len(data):
+            try:
+                players, max_players = struct.unpack_from('<HH', data[offset:offset + 4])
+            except:
+                players, max_players = 0, 0
+
+        if players > max_players:
+            players, max_players = 0, 0
 
         return {
             "hostname": hostname,
