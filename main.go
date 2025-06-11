@@ -1,101 +1,157 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
-	"sync"
-
-	"github.com/gofiber/fiber/v2"
+	"time"
 )
 
-// ServerCore holds the basic server info
-type ServerCore struct {
-	Address    string `json:"address"`
+type ServerInfo struct {
 	Hostname   string `json:"hostname"`
-	Players    int    `json:"players"`
-	MaxPlayers int    `json:"max_players"`
 	Gamemode   string `json:"gamemode"`
-	Language   string `json:"language"`
-	Password   bool   `json:"password"`
+	Mapname    string `json:"mapname"`
+	Players    int    `json:"players"`
+	MaxPlayers int    `json:"maxplayers"`
+	Passworded bool   `json:"passworded"`
+	Version    string `json:"version"`
 }
 
-// Server wraps core info, rules and extra fields
-type Server struct {
-	Core        ServerCore        `json:"core"`
-	Rules       map[string]string `json:"rules"`
-	Description string            `json:"description,omitempty"`
-	Banner      string            `json:"banner,omitempty"`
-	Active      bool              `json:"active,omitempty"`
+func queryServer(ip string, port string) (*ServerInfo, error) {
+	addr := fmt.Sprintf("%s:%s", ip, port)
+	conn, err := net.DialTimeout("udp", addr, 2*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect: %v", err)
+	}
+	defer conn.Close()
+
+	// Build base packet header
+	ipParts := strings.Split(ip, ".")
+	if len(ipParts) != 4 {
+		return nil, fmt.Errorf("invalid IP format")
+	}
+
+	packetHeader := []byte{'S', 'A', 'M', 'P'}
+	for _, part := range ipParts {
+		var b byte
+		fmt.Sscanf(part, "%d", &b)
+		packetHeader = append(packetHeader, b)
+	}
+	var portNum uint16
+	fmt.Sscanf(port, "%d", &portNum)
+	portBytes := make([]byte, 2)
+	binary.LittleEndian.PutUint16(portBytes, portNum)
+	packetHeader = append(packetHeader, portBytes...)
+
+	// ===== Query: Info =====
+	infoPacket := append(append([]byte{}, packetHeader...), 'i')
+	_, err = conn.Write(infoPacket)
+	if err != nil {
+		return nil, fmt.Errorf("info query failed: %v", err)
+	}
+
+	buf := make([]byte, 512)
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil, fmt.Errorf("no info response: %v", err)
+	}
+
+	r := bytes.NewReader(buf[:n])
+	r.Seek(11, io.SeekStart) // Skip header
+
+	var password byte
+	binary.Read(r, binary.LittleEndian, &password)
+
+	var players, maxPlayers uint16
+	binary.Read(r, binary.LittleEndian, &players)
+	binary.Read(r, binary.LittleEndian, &maxPlayers)
+
+	readString := func(r io.Reader) string {
+		var length byte
+		binary.Read(r, binary.LittleEndian, &length)
+		data := make([]byte, length)
+		r.Read(data)
+		return string(data)
+	}
+
+	hostname := readString(r)
+	gamemode := readString(r)
+	mapname := readString(r)
+
+	// ===== Query: Rules (to get version) =====
+	rulesPacket := append(append([]byte{}, packetHeader...), 'r')
+	_, err = conn.Write(rulesPacket)
+	if err != nil {
+		return nil, fmt.Errorf("rules query failed: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err = conn.Read(buf)
+	if err != nil {
+		return nil, fmt.Errorf("no rules response: %v", err)
+	}
+
+	r2 := bytes.NewReader(buf[11:n])
+	var ruleCount byte
+	binary.Read(r2, binary.LittleEndian, &ruleCount)
+
+	version := "unknown"
+	for i := 0; i < int(ruleCount); i++ {
+		nameLen, _ := r2.ReadByte()
+		nameBytes := make([]byte, nameLen)
+		r2.Read(nameBytes)
+
+		valLen, _ := r2.ReadByte()
+		valBytes := make([]byte, valLen)
+		r2.Read(valBytes)
+
+		name := string(nameBytes)
+		val := string(valBytes)
+
+		if strings.ToLower(name) == "version" {
+			version = val
+			break
+		}
+	}
+
+	return &ServerInfo{
+		Hostname:   hostname,
+		Gamemode:   gamemode,
+		Mapname:    mapname,
+		Players:    int(players),
+		MaxPlayers: int(maxPlayers),
+		Passworded: password == 1,
+		Version:    version,
+	}, nil
 }
 
-// In-memory store
-var (
-	servers = make(map[string]Server)
-	mutex   = &sync.Mutex{}
-)
+func serverHandler(w http.ResponseWriter, r *http.Request) {
+	ip := r.URL.Query().Get("ip")
+	port := r.URL.Query().Get("port")
+	if ip == "" || port == "" {
+		http.Error(w, "Missing ip or port", http.StatusBadRequest)
+		return
+	}
+
+	info, err := queryServer(ip, port)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(info)
+}
 
 func main() {
-	app := fiber.New()
-
-	app.Post("/v2/server", postServer)
-	app.Patch("/v2/server", patchServer)
-	app.Get("/v2/server/:address", getServer)
-
-	log.Fatal(app.Listen(":8080"))
-}
-
-func postServer(c *fiber.Ctx) error {
-	var srv Server
-	if err := c.BodyParser(&srv); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid server format"})
-	}
-
-	addr := normalizeAddress(srv.Core.Address)
-	mutex.Lock()
-	servers[addr] = srv
-	mutex.Unlock()
-
-	return c.JSON(srv)
-}
-
-func patchServer(c *fiber.Ctx) error {
-	address := c.FormValue("address")
-	if address == "" {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "missing address field"})
-	}
-
-	normalized := normalizeAddress(address)
-	mutex.Lock()
-	srv, ok := servers[normalized]
-	if !ok {
-		mutex.Unlock()
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "server not found"})
-	}
-	srv.Active = true
-	servers[normalized] = srv
-	mutex.Unlock()
-
-	return c.JSON(fiber.Map{"status": "updated"})
-}
-
-func getServer(c *fiber.Ctx) error {
-	address := c.Params("address")
-	normalized := normalizeAddress(address)
-
-	mutex.Lock()
-	srv, ok := servers[normalized]
-	mutex.Unlock()
-
-	if !ok {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "server not found"})
-	}
-
-	return c.JSON(srv)
-}
-
-func normalizeAddress(address string) string {
-	return strings.ToLower(strings.TrimSpace(address))
+	http.HandleFunc("/api/server", serverHandler)
+	log.Println("API running on http://localhost:8080/api/server")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
