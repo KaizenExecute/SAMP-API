@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from samp_query import SampQuery
+from samp_query.client import SampQuery  # ✅ fixed import
 
 app = FastAPI(title="SA-MP/Open.MP Server Status API")
 
@@ -18,8 +18,8 @@ def root():
 
 @app.get("/api/server")
 def get_server_info(
-    ip: str = Query(..., description="IP address of the SA-MP/Open.MP server"),
-    port: int = Query(7777, description="Port of the server")
+    ip: str = Query(...),
+    port: int = Query(7777)
 ):
     try:
         with SampQuery(ip, port) as query:
@@ -41,8 +41,8 @@ def get_server_info(
 
 @app.get("/api/players")
 def get_player_list(
-    ip: str = Query(..., description="IP address of the SA-MP/Open.MP server"),
-    port: int = Query(7777, description="Port of the server")
+    ip: str = Query(...),
+    port: int = Query(7777)
 ):
     try:
         with SampQuery(ip, port) as query:
