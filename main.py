@@ -1,4 +1,3 @@
-
 import socket
 import struct
 from fastapi import FastAPI, HTTPException, Query
@@ -19,37 +18,34 @@ def root():
     return {"message": "SA-MP/Open.MP API is running."}
 
 
-def samp_query(ip, port, opcode, attempts=3):
-    prefix = b'SAMP' + bytes(map(int, ip.split('.'))) + struct.pack('<H', port)
-    packet = prefix + opcode
-    last_error = None
-    for _ in range(attempts):
+def samp_query(ip: str, port: int, opcode: bytes) -> bytes:
+    packet = b'SAMP' + bytes(map(int, ip.split('.'))) + struct.pack('<H', port) + opcode
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.settimeout(2)
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.settimeout(3)
-                s.sendto(packet, (ip, port))
-                data, _ = s.recvfrom(4096)
-                if data and len(data) >= 11:
-                    return data
+            s.sendto(packet, (ip, port))
+            data, _ = s.recvfrom(4096)
+            if len(data) < 11:
+                raise ValueError("Invalid packet length.")
+            return data
+        except socket.timeout:
+            raise ValueError("No response from server (timeout).")
         except Exception as e:
-            last_error = e
-    raise ValueError(f"No response from server (timeout or blocked) — {last_error}")
+            raise ValueError(f"Socket error: {str(e)}")
 
 
-def safe_read_string(data: bytes, offset: int) -> tuple[str, int]:
+def parse_string(data: bytes, offset: int) -> tuple[str, int]:
     if offset >= len(data):
         return "", offset
-    try:
-        length = data[offset]
-        offset += 1
-        if offset + length > len(data):
-            return "", offset
-        raw = data[offset:offset + length]
-        text = raw.decode('utf-8', errors='ignore')
-        text = ''.join(c for c in text if 32 <= ord(c) <= 126)
-        return text.strip(), offset + length
-    except:
-        return "", offset
+    length = data[offset]
+    offset += 1
+    if offset + length > len(data):
+        return "", offset + length
+    raw = data[offset:offset + length]
+    text = raw.decode('utf-8', errors='ignore')
+    clean = ''.join(c for c in text if 32 <= ord(c) <= 126)
+    return clean.strip(), offset + length
+
 
 @app.get("/api/server")
 def get_server_info(ip: str = Query(...), port: int = Query(7777)):
@@ -57,34 +53,15 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
         data = samp_query(ip, port, b'i')
         offset = 11
 
-        def safe_read(data: bytes, offset: int) -> tuple[str, int]:
-            if offset >= len(data):
-                return "", offset
-            try:
-                length = data[offset]
-                offset += 1
-                if length == 0 or offset + length > len(data):
-                    return "", offset
-                raw = data[offset:offset + length]
-                decoded = raw.decode('utf-8', errors='ignore')
-                clean = ''.join(c for c in decoded if 32 <= ord(c) <= 126)
-                return clean.strip(), offset + length
-            except:
-                return "", offset
-
-        hostname, offset = safe_read(data, offset)
-        gamemode, offset = safe_read(data, offset)
-        mapname, offset = safe_read(data, offset)
+        hostname, offset = parse_string(data, offset)
+        gamemode, offset = parse_string(data, offset)
+        mapname, offset = parse_string(data, offset)
 
         players = max_players = 0
         if offset + 4 <= len(data):
-            try:
-                players, max_players = struct.unpack_from('<HH', data, offset)
-            except:
-                players = max_players = 0
+            players, max_players = struct.unpack_from('<HH', data, offset)
 
-        # Sanity check
-        if not (0 <= players <= 5000) or not (0 <= max_players <= 5000):
+        if not (0 <= players <= max_players <= 5000):
             players = max_players = 0
 
         return {
@@ -94,9 +71,9 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
             "players": players,
             "max_players": max_players
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
 
 @app.get("/api/players")
 def get_players(ip: str = Query(...), port: int = Query(7777)):
@@ -105,18 +82,19 @@ def get_players(ip: str = Query(...), port: int = Query(7777)):
         offset = 11
         players = []
 
-        try:
-            count = data[offset]
-            offset += 1
-            for _ in range(count):
-                name, offset = safe_read_string(data, offset)
-                if offset + 4 > len(data):
-                    break
-                score = struct.unpack_from('<I', data[offset:offset + 4])[0]
-                offset += 4
-                players.append({"name": name, "score": score})
-        except:
-            pass
+        if offset >= len(data):
+            raise ValueError("No player data.")
+
+        count = data[offset]
+        offset += 1
+
+        for _ in range(count):
+            name, offset = parse_string(data, offset)
+            if offset + 4 > len(data):
+                break
+            score = struct.unpack_from('<I', data[offset:offset + 4])[0]
+            offset += 4
+            players.append({"name": name, "score": score})
 
         return {"players": players}
     except Exception as e:
@@ -124,7 +102,7 @@ def get_players(ip: str = Query(...), port: int = Query(7777)):
 
 
 @app.get("/api/status")
-def get_status(ip: str, port: int = 7777):
+def get_status(ip: str = Query(...), port: int = Query(7777)):
     try:
         _ = samp_query(ip, port, b'i')
         return {"online": True}
