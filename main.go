@@ -1,142 +1,101 @@
 package main
 
 import (
-	"encoding/binary"
+	"encoding/json"
+	"fmt"
 	"log"
-	"net"
-	"os"
-	"strconv"
+	"net/http"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/gofiber/fiber/v2"
+)
+
+// ServerCore holds the basic server info
+type ServerCore struct {
+	Address    string `json:"address"`
+	Hostname   string `json:"hostname"`
+	Players    int    `json:"players"`
+	MaxPlayers int    `json:"max_players"`
+	Gamemode   string `json:"gamemode"`
+	Language   string `json:"language"`
+	Password   bool   `json:"password"`
+}
+
+// Server wraps core info, rules and extra fields
+type Server struct {
+	Core        ServerCore        `json:"core"`
+	Rules       map[string]string `json:"rules"`
+	Description string            `json:"description,omitempty"`
+	Banner      string            `json:"banner,omitempty"`
+	Active      bool              `json:"active,omitempty"`
+}
+
+// In-memory store
+var (
+	servers = make(map[string]Server)
+	mutex   = &sync.Mutex{}
 )
 
 func main() {
 	app := fiber.New()
 
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"message": "SA-MP/Open.MP API is running."})
-	})
+	app.Post("/v2/server", postServer)
+	app.Patch("/v2/server", patchServer)
+	app.Get("/v2/server/:address", getServer)
 
-	app.Get("/api/server", func(c *fiber.Ctx) error {
-		ip := c.Query("ip")
-		portStr := c.Query("port", "7777")
-
-		port, err := strconv.Atoi(portStr)
-		if err != nil || port < 1 || port > 65535 {
-			return c.Status(400).JSON(fiber.Map{"error": "Invalid port"})
-		}
-
-		data, err := queryServer(ip, port)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-
-		hostname, gamemode, mapname, players, maxPlayers := parseInfo(data)
-
-		return c.JSON(fiber.Map{
-			"hostname":    hostname,
-			"gamemode":    gamemode,
-			"mapname":     mapname,
-			"players":     players,
-			"max_players": maxPlayers,
-		})
-	})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "3000"
-	}
-	log.Fatal(app.Listen(":" + port))
+	log.Fatal(app.Listen(":8080"))
 }
 
-func queryServer(ip string, port int) ([]byte, error) {
-	addr := net.JoinHostPort(ip, strconv.Itoa(port))
-
-	// SAMP header + IP + port + opcode
-	packet := []byte{'S', 'A', 'M', 'P'}
-	for _, b := range strings.Split(ip, ".") {
-		n, _ := strconv.Atoi(b)
-		packet = append(packet, byte(n))
-	}
-	packet = append(packet, byte(port&0xFF), byte((port>>8)&0xFF))
-	packet = append(packet, 'i')
-
-	conn, err := net.DialTimeout("udp", addr, 2*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	conn.SetDeadline(time.Now().Add(2 * time.Second))
-	_, err = conn.Write(packet)
-	if err != nil {
-		return nil, err
+func postServer(c *fiber.Ctx) error {
+	var srv Server
+	if err := c.BodyParser(&srv); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid server format"})
 	}
 
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, err
-	}
+	addr := normalizeAddress(srv.Core.Address)
+	mutex.Lock()
+	servers[addr] = srv
+	mutex.Unlock()
 
-	return buf[:n], nil
+	return c.JSON(srv)
 }
 
-func parseInfo(data []byte) (string, string, string, uint16, uint16) {
-	if len(data) < 11 {
-		return "Unknown", "Unknown", "Unknown", 0, 0
+func patchServer(c *fiber.Ctx) error {
+	address := c.FormValue("address")
+	if address == "" {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "missing address field"})
 	}
 
-	offset := 11
-	hostname, ok := readString(data, &offset)
+	normalized := normalizeAddress(address)
+	mutex.Lock()
+	srv, ok := servers[normalized]
 	if !ok {
-		return "Unknown", "Unknown", "Unknown", 0, 0
+		mutex.Unlock()
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "server not found"})
 	}
+	srv.Active = true
+	servers[normalized] = srv
+	mutex.Unlock()
 
-	gamemode, ok := readString(data, &offset)
-	if !ok {
-		return hostname, "Unknown", "Unknown", 0, 0
-	}
-
-	mapname, ok := readString(data, &offset)
-	if !ok {
-		return hostname, gamemode, "Unknown", 0, 0
-	}
-
-	if offset+4 > len(data) {
-		return hostname, gamemode, mapname, 0, 0
-	}
-
-	players := binary.LittleEndian.Uint16(data[offset : offset+2])
-	maxPlayers := binary.LittleEndian.Uint16(data[offset+2 : offset+4])
-
-	return hostname, gamemode, mapname, players, maxPlayers
+	return c.JSON(fiber.Map{"status": "updated"})
 }
 
-func readString(data []byte, offset *int) (string, bool) {
-	if *offset >= len(data) {
-		return "", false
+func getServer(c *fiber.Ctx) error {
+	address := c.Params("address")
+	normalized := normalizeAddress(address)
+
+	mutex.Lock()
+	srv, ok := servers[normalized]
+	mutex.Unlock()
+
+	if !ok {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "server not found"})
 	}
 
-	length := int(data[*offset])
-	*offset++
+	return c.JSON(srv)
+}
 
-	if *offset+length > len(data) {
-		return "", false
-	}
-
-	raw := data[*offset : *offset+length]
-	*offset += length
-
-	// Filter clean printable ASCII
-	clean := make([]byte, 0, len(raw))
-	for _, b := range raw {
-		if b >= 32 && b <= 126 {
-			clean = append(clean, b)
-		}
-	}
-
-	return string(clean), true
+func normalizeAddress(address string) string {
+	return strings.ToLower(strings.TrimSpace(address))
 }
