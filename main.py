@@ -17,14 +17,23 @@ app.add_middleware(
 def root():
     return {"message": "SA-MP/Open.MP API is running."}
 
-# Core SA-MP Query Protocol
+
 def samp_query(ip, port, opcode):
-    prefix = b'SAMP' + bytes(map(int, ip.split('.'))) + struct.pack('<H', port)
-    packet = prefix + opcode
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.settimeout(2)
-        s.sendto(packet, (ip, port))
-        return s.recvfrom(4096)[0]
+    try:
+        prefix = b'SAMP' + bytes(map(int, ip.split('.'))) + struct.pack('<H', port)
+        packet = prefix + opcode
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(2)
+            s.sendto(packet, (ip, port))
+            data, _ = s.recvfrom(4096)
+            if not data or len(data) < 11:
+                raise ValueError("Empty or invalid response from server")
+            return data
+    except socket.timeout:
+        raise ValueError("No response from server (timeout)")
+    except Exception as e:
+        raise ValueError(f"UDP query failed: {e}")
+
 
 @app.get("/api/server")
 def get_server_info(ip: str = Query(...), port: int = Query(7777)):
@@ -52,7 +61,8 @@ def get_server_info(ip: str = Query(...), port: int = Query(7777)):
             "max_players": max_players
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
 
 @app.get("/api/players")
 def get_players(ip: str = Query(...), port: int = Query(7777)):
@@ -72,4 +82,13 @@ def get_players(ip: str = Query(...), port: int = Query(7777)):
             players.append({"name": name, "score": score})
         return {"players": players}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
+@app.get("/api/status")
+def get_status(ip: str, port: int = 7777):
+    try:
+        _ = samp_query(ip, port, b'i')
+        return {"online": True}
+    except:
+        return {"online": False}
