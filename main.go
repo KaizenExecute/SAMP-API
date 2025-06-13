@@ -30,11 +30,11 @@ func getServerInfo(ip string) (*ServerInfo, error) {
 
 	return &ServerInfo{
 		Hostname:   info.Hostname,
-		Gamemode:   info.GameMode,
-		Mapname:    info.MapName,
+		Gamemode:   info.Gamemode,
+		Mapname:    info.Mapname,
 		Players:    info.Players,
 		MaxPlayers: info.MaxPlayers,
-		Passworded: info.Passworded,
+		Passworded: info.Password,
 		Language:   info.Language,
 	}, nil
 }
