@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	sampquery "github.com/Southclaws/go-samp-query"
 )
 
@@ -21,11 +19,7 @@ type ServerInfo struct {
 	Language   string `json:"language"`
 }
 
-func queryServer(ip string) (*ServerInfo, error) {
-	if !strings.Contains(ip, ":") {
-		return nil, fmt.Errorf("invalid IP format. Use IP:PORT")
-	}
-
+func getServerInfo(ip string) (*ServerInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -45,29 +39,32 @@ func queryServer(ip string) (*ServerInfo, error) {
 	}, nil
 }
 
-func serverHandler(w http.ResponseWriter, r *http.Request) {
-	ip := r.URL.Query().Get("ip")
-	if ip == "" {
-		http.Error(w, "Missing `ip` query param. Use ?ip=IP:PORT", http.StatusBadRequest)
-		return
-	}
-
-	info, err := queryServer(ip)
-	if err != nil {
-		http.Error(w, "Server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(info)
-}
-
 func main() {
-	http.HandleFunc("/api/server", serverHandler)
+	app := fiber.New()
 
-	fmt.Println("🚀 SA-MP Monitor API running at http://localhost:3000")
-	err := http.ListenAndServe(":3000", nil)
-	if err != nil {
-		fmt.Println("Server failed to start:", err)
-	}
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("🎮 SA-MP Monitor API is running")
+	})
+
+	app.Get("/api/server", func(c *fiber.Ctx) error {
+		ip := c.Query("ip")
+		if ip == "" {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "Missing ?ip=IP:PORT",
+			})
+		}
+
+		info, err := getServerInfo(ip)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+
+		return c.JSON(info)
+	})
+
+	port := 3000
+	fmt.Printf("🚀 API running on http://localhost:%d\n", port)
+	app.Listen(fmt.Sprintf(":%d", port))
 }
