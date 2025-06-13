@@ -1,71 +1,69 @@
 package main
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
-	"time"
+	"log"
+	"net/http"
+	"strings"
 
-	"github.com/gofiber/fiber/v2"
-	sampquery "github.com/Southclaws/go-samp-query"
+	"github.com/Southclaws/sampquery"
 )
 
-// ServerInfo is the JSON response struct
 type ServerInfo struct {
+	IP         string `json:"ip"`
 	Hostname   string `json:"hostname"`
 	Gamemode   string `json:"gamemode"`
 	Mapname    string `json:"mapname"`
 	Players    int    `json:"players"`
 	MaxPlayers int    `json:"max_players"`
 	Passworded bool   `json:"passworded"`
-	Language   string `json:"language"`
+	Error      string `json:"error,omitempty"`
 }
 
-// getServerInfo queries a SA-MP server and returns structured data
-func getServerInfo(ip string) (*ServerInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+func queryServer(ip string, port int) (ServerInfo, error) {
+	client := sampquery.New(ip, port)
 
-	info, err := sampquery.GetServerInfo(ctx, ip, true)
+	info, err := client.GetServerInfo()
 	if err != nil {
-		return nil, err
+		return ServerInfo{}, err
 	}
 
-	return &ServerInfo{
+	return ServerInfo{
+		IP:         fmt.Sprintf("%s:%d", ip, port),
 		Hostname:   info.Hostname,
 		Gamemode:   info.Gamemode,
-		Mapname:    info.Mapname,
+		Mapname:    info.MapName,
 		Players:    info.Players,
 		MaxPlayers: info.MaxPlayers,
-		Passworded: info.Password,
-		Language:   info.Language,
+		Passworded: info.Passworded,
 	}, nil
 }
 
+func serverHandler(w http.ResponseWriter, r *http.Request) {
+	ipPort := r.URL.Query().Get("ip")
+	if ipPort == "" || !strings.Contains(ipPort, ":") {
+		http.Error(w, `{"error":"Missing or invalid 'ip' format. Use ?ip=127.0.0.1:7777"}`, http.StatusBadRequest)
+		return
+	}
+
+	parts := strings.Split(ipPort, ":")
+	ip := parts[0]
+	var port int
+	fmt.Sscanf(parts[1], "%d", &port)
+
+	info, err := queryServer(ip, port)
+	if err != nil {
+		info.Error = err.Error()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(info)
+}
+
 func main() {
-	app := fiber.New()
-
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("🎮 SA-MP Monitor API is running")
-	})
-
-	app.Get("/api/server", func(c *fiber.Ctx) error {
-		ip := c.Query("ip")
-		if ip == "" {
-			return c.Status(400).JSON(fiber.Map{
-				"error": "Missing ?ip=IP:PORT",
-			})
-		}
-
-		info, err := getServerInfo(ip)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-
-		return c.JSON(info)
-	})
-
-	fmt.Println("🚀 API running at http://localhost:3000")
-	app.Listen(":3000")
+	http.HandleFunc("/api/server", serverHandler)
+	port := "3000"
+	log.Printf("🟢 SA-MP API running at http://localhost:%s/api/server?ip=127.0.0.1:7777\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
