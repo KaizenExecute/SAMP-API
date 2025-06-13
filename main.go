@@ -31,7 +31,7 @@ func getServerInfo(ip string) (*ServerInfo, error) {
 	return &ServerInfo{
 		Hostname:   info.Hostname,
 		Gamemode:   info.Gamemode,
-		Mapname:    info.Mapname,
+		Mapname:    info.Map,       // ✅ Corrected field name
 		Players:    info.Players,
 		MaxPlayers: info.MaxPlayers,
 		Passworded: info.Password,
