@@ -28,10 +28,15 @@ func getServerInfo(ip string) (*ServerInfo, error) {
 		return nil, err
 	}
 
+	mapname := ""
+	if val, ok := info.Extra["mapname"]; ok {
+		mapname = val
+	}
+
 	return &ServerInfo{
 		Hostname:   info.Hostname,
 		Gamemode:   info.Gamemode,
-		Mapname:    info.Map,       // ✅ Corrected field name
+		Mapname:    mapname,
 		Players:    info.Players,
 		MaxPlayers: info.MaxPlayers,
 		Passworded: info.Password,
