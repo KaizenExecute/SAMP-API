@@ -22,11 +22,15 @@ type ServerInfo struct {
 }
 
 func queryServer(ip string, port int) (ServerInfo, error) {
-	client := sampquery.New(ip, port)
+	client, err := sampquery.Dial(ip, port)
+	if err != nil {
+		return ServerInfo{}, fmt.Errorf("connection failed: %v", err)
+	}
+	defer client.Close()
 
 	info, err := client.GetServerInfo()
 	if err != nil {
-		return ServerInfo{}, err
+		return ServerInfo{}, fmt.Errorf("info fetch failed: %v", err)
 	}
 
 	return ServerInfo{
@@ -43,7 +47,7 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 func serverHandler(w http.ResponseWriter, r *http.Request) {
 	ipPort := r.URL.Query().Get("ip")
 	if ipPort == "" || !strings.Contains(ipPort, ":") {
-		http.Error(w, `{"error":"Missing or invalid 'ip'. Use: ?ip=127.0.0.1:7777"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"Missing or invalid 'ip'. Use ?ip=127.0.0.1:7777"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -64,6 +68,6 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
 	port := "3000"
-	log.Printf("✅ SA-MP API running at http://localhost:%s/api/server?ip=127.0.0.1:7777\n", port)
+	log.Printf("🌐 SA-MP API running at http://localhost:%s/api/server?ip=127.0.0.1:7777\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
