@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	sampquery "github.com/Southclaws/go-samp-query"
+	sampquery "github.com/markqiu/go-sampquery"
 )
 
+// ServerInfo is the JSON response struct
 type ServerInfo struct {
 	Hostname   string `json:"hostname"`
 	Gamemode   string `json:"gamemode"`
@@ -19,6 +20,7 @@ type ServerInfo struct {
 	Language   string `json:"language"`
 }
 
+// getServerInfo queries a SA-MP server and returns structured data
 func getServerInfo(ip string) (*ServerInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -28,15 +30,10 @@ func getServerInfo(ip string) (*ServerInfo, error) {
 		return nil, err
 	}
 
-	mapname := ""
-	if val, ok := info.Extra["mapname"]; ok {
-		mapname = val
-	}
-
 	return &ServerInfo{
 		Hostname:   info.Hostname,
 		Gamemode:   info.Gamemode,
-		Mapname:    mapname,
+		Mapname:    info.Mapname,
 		Players:    info.Players,
 		MaxPlayers: info.MaxPlayers,
 		Passworded: info.Password,
@@ -69,7 +66,6 @@ func main() {
 		return c.JSON(info)
 	})
 
-	port := 3000
-	fmt.Printf("🚀 API running on http://localhost:%d\n", port)
-	app.Listen(fmt.Sprintf(":%d", port))
+	fmt.Println("🚀 API running at http://localhost:3000")
+	app.Listen(":3000")
 }
