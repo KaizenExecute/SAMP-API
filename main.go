@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	sampquery "github.com/markqiu/go-sampquery"
+	sampquery "github.com/Southclaws/go-samp-query"
 )
 
 // ServerInfo is the JSON response struct
