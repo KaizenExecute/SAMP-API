@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Southclaws/sampquery"
+	sampquery "github.com/Southclaws/go-samp-query"
 )
 
 type ServerInfo struct {
@@ -43,7 +43,7 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 func serverHandler(w http.ResponseWriter, r *http.Request) {
 	ipPort := r.URL.Query().Get("ip")
 	if ipPort == "" || !strings.Contains(ipPort, ":") {
-		http.Error(w, `{"error":"Missing or invalid 'ip' format. Use ?ip=127.0.0.1:7777"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"Missing or invalid 'ip'. Use: ?ip=127.0.0.1:7777"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -64,6 +64,6 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
 	port := "3000"
-	log.Printf("🟢 SA-MP API running at http://localhost:%s/api/server?ip=127.0.0.1:7777\n", port)
+	log.Printf("✅ SA-MP API running at http://localhost:%s/api/server?ip=127.0.0.1:7777\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
