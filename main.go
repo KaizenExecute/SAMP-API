@@ -15,6 +15,7 @@ type ServerInfo struct {
 	Hostname   string `json:"hostname"`
 	Gamemode   string `json:"gamemode"`
 	Mapname    string `json:"mapname"`
+	Version    string `json:"version"`
 	Players    int    `json:"players"`
 	MaxPlayers int    `json:"max_players"`
 	Passworded bool   `json:"passworded"`
@@ -33,14 +34,14 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 		return ServerInfo{}, fmt.Errorf("dial error: %v", err)
 	}
 	defer conn.Close()
-
 	conn.SetDeadline(time.Now().Add(2 * time.Second))
 
+	// Build SA-MP query packet
 	packet := []byte{'S', 'A', 'M', 'P'}
 	for _, part := range strings.Split(ip, ".") {
-		var b byte
+		var b int
 		fmt.Sscanf(part, "%d", &b)
-		packet = append(packet, b)
+		packet = append(packet, byte(b))
 	}
 	packet = append(packet, byte(port&0xFF), byte((port>>8)&0xFF))
 	packet = append(packet, 'i') // info opcode
@@ -50,42 +51,55 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 		return ServerInfo{}, fmt.Errorf("write error: %v", err)
 	}
 
-	buffer := make([]byte, 512)
+	buffer := make([]byte, 2048)
 	n, _, err := conn.ReadFromUDP(buffer)
 	if err != nil {
 		return ServerInfo{}, fmt.Errorf("read error: %v", err)
 	}
-
 	if n < 11 {
-		return ServerInfo{}, fmt.Errorf("invalid response")
+		return ServerInfo{}, fmt.Errorf("invalid response length")
 	}
 
 	offset := 11 // skip header
 
 	readString := func() string {
+		if offset >= len(buffer) {
+			return ""
+		}
 		length := int(buffer[offset])
 		offset++
+		if offset+length > len(buffer) || length <= 0 {
+			return ""
+		}
 		s := string(buffer[offset : offset+length])
 		offset += length
-		return s
+		return strings.Trim(s, "\x00")
 	}
 
 	hostname := readString()
 	gamemode := readString()
 	mapname := readString()
+
+	if offset+2 > len(buffer) {
+		return ServerInfo{}, fmt.Errorf("not enough bytes for players info")
+	}
+
 	players := int(buffer[offset])
 	offset++
 	maxPlayers := int(buffer[offset])
 	offset++
+
+	version := readString()
 
 	return ServerInfo{
 		IP:         fmt.Sprintf("%s:%d", ip, port),
 		Hostname:   hostname,
 		Gamemode:   gamemode,
 		Mapname:    mapname,
+		Version:    version,
 		Players:    players,
 		MaxPlayers: maxPlayers,
-		Passworded: false,
+		Passworded: false, // optional: implement later
 	}, nil
 }
 
@@ -120,15 +134,15 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "online",
 		"message": "SA-MP/Open.MP API is running!",
-		"usage":   "/api/server?ip=IP:PORT",
+		"usage":   "/api/server?ip=127.0.0.1:7777",
 	})
 }
 
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
-	http.HandleFunc("/api", statusHandler) // ✅ Add this line
+	http.HandleFunc("/api", statusHandler)
 
 	port := "3000"
-	log.Printf("✅ API listening on http://0.0.0.0:%s/api", port)
+	log.Printf("✅ API running at: http://0.0.0.0:%s/api", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
