@@ -11,6 +11,7 @@ import (
 	sampquery "github.com/Southclaws/go-samp-query"
 )
 
+// ServerInfo defines the structure of server response data
 type ServerInfo struct {
 	IP         string `json:"ip"`
 	Hostname   string `json:"hostname"`
@@ -23,17 +24,24 @@ type ServerInfo struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// Constants
+const (
+	defaultTimeout = 3 * time.Second
+	apiPrefix      = "/api/server/"
+	contentType    = "application/json"
+)
+
 func serverHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", contentType)
 
 	ip := r.URL.Query().Get("ip")
-	if ip == "" || !strings.Contains(ip, ":") {
+	if !isValidIP(ip) {
 		http.Error(w, `{"error":"Missing or invalid 'ip'. Use ?ip=127.0.0.1:7777"}`, http.StatusBadRequest)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
 	server, err := sampquery.GetServerInfo(ctx, ip, true)
@@ -41,45 +49,45 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		info.Error = err.Error()
-		json.NewEncoder(w).Encode(info)
+		_ = json.NewEncoder(w).Encode(info)
 		return
-	}
-
-	// Safe version check
-	version := ""
-	if v, ok := server.Rules["version"]; ok {
-		version = v
 	}
 
 	info.Hostname = server.Hostname
 	info.Gamemode = server.Gamemode
-	info.Version = version
+	info.Version = server.Rules["version"]
 	info.Players = server.Players
 	info.MaxPlayers = server.MaxPlayers
 	info.Passworded = server.Password
 	info.IsOmp = server.IsOmp
 
-	json.NewEncoder(w).Encode(info)
+	_ = json.NewEncoder(w).Encode(info)
 }
 
 func serverPathHandler(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/server/")
-	if path == "" || !strings.Contains(path, ":") {
+	ip := strings.TrimPrefix(r.URL.Path, apiPrefix)
+	if !isValidIP(ip) {
 		http.Error(w, `{"error":"Missing or invalid IP. Use /api/server/127.0.0.1:7777"}`, http.StatusBadRequest)
 		return
 	}
 
-	// Reuse the serverHandler by injecting the IP as a query param
+	// Forward to query-style handler by injecting IP into query
 	q := r.URL.Query()
-	q.Set("ip", path)
+	q.Set("ip", ip)
 	r.URL.RawQuery = q.Encode()
 
 	serverHandler(w, r)
 }
 
+// isValidIP checks if the IP string is in host:port format
+func isValidIP(ip string) bool {
+	return ip != "" && strings.Contains(ip, ":")
+}
+
 func main() {
-	http.HandleFunc("/api/server/", serverPathHandler) // path-style endpoint
-	http.HandleFunc("/api/server", serverHandler)      // query-style endpoint
+	http.HandleFunc(apiPrefix, serverPathHandler)
+	http.HandleFunc("/api/server", serverHandler)
+
 	log.Println("✅ API running on http://0.0.0.0:3000/api/server/127.0.0.1:7777 or ?ip=127.0.0.1:7777")
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }
