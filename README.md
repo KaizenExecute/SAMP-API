@@ -11,7 +11,7 @@ A simple, lightweight, and fast API to query SA-MP (San Andreas Multiplayer) or 
 
 ## 📦 API Endpoints
 
-### `GET https://ainsoft.xyz/api/server/`
+### `GET https://ainsoft.xyz/api/server/{ip}:{port}`
 
 Returns server info.
 
@@ -20,9 +20,9 @@ Returns server info.
 **Response:**
 ```json
 {
-  "ip": "104.234.180.32:7777",
-  "hostname": "Montreal Global City RolePlay",
-  "gamemode": "MGC:RP v7.8.1",
+  "ip": "127.0.0.0:7777",
+  "hostname": "Grand Life Roleplay",
+  "gamemode": "Los Santos",
   "version": "omp 1.4.0.2783",
   "players": 46,
   "max_players": 300,
