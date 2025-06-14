@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/Southclaws/go-samp-query/query"
+	sampquery "github.com/Southclaws/go-samp-query"
 )
 
 type ServerInfo struct {
@@ -28,43 +27,38 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
 
-	q := r.URL.Query().Get("ip")
-	if !strings.Contains(q, ":") {
-		http.Error(w, `{"error":"Use format ?ip=IP:PORT"}`, http.StatusBadRequest)
+	ip := r.URL.Query().Get("ip")
+	if ip == "" || !strings.Contains(ip, ":") {
+		http.Error(w, `{"error":"Missing or invalid 'ip'. Use ?ip=127.0.0.1:7777"}`, http.StatusBadRequest)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	server, err := sampquery.GetServerInfo(ctx, q, true)
-	out := ServerInfo{IP: q}
-	if err != nil {
-		out.Error = err.Error()
-	} else {
-		out.Hostname = server.Hostname
-		out.Gamemode = server.Gamemode
-		out.Mapname = server.Language
-		out.Version = server.Version
-		out.Players = server.Players
-		out.MaxPlayers = server.MaxPlayers
-		out.Passworded = server.Passworded
-	}
-	json.NewEncoder(w).Encode(out)
-}
+	server, err := sampquery.GetServerInfo(ctx, ip, true)
+	info := ServerInfo{IP: ip}
 
-func statusHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "online",
-		"message": "SA‑MP/Open.MP API (v1.2.4) is running!",
-		"usage":   "/api/server?ip=IP:PORT",
-	})
+	if err != nil {
+		info.Error = err.Error()
+		json.NewEncoder(w).Encode(info)
+		return
+	}
+
+	info.Hostname = server.Hostname
+	info.Gamemode = server.Gamemode
+	info.Mapname = server.Mapname
+	info.Version = server.Version
+	info.Players = server.Players
+	info.MaxPlayers = server.MaxPlayers
+	info.Passworded = server.Password
+
+	json.NewEncoder(w).Encode(info)
 }
 
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
-	http.HandleFunc("/api", statusHandler)
-	log.Printf("🚀 Running on http://localhost:3000/api")
+
+	log.Println("🌐 Running on http://0.0.0.0:3000/api/server?ip=127.0.0.1:7777")
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }
