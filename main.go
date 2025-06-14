@@ -15,8 +15,8 @@ type ServerInfo struct {
 	IP         string `json:"ip"`
 	Hostname   string `json:"hostname"`
 	Gamemode   string `json:"gamemode"`
-	Mapname    string `json:"mapname"`
-	Version    string `json:"version"`
+	Mapname    string `json:"mapname"`     // <- using Language here
+	Version    string `json:"version"`     // <- not available
 	Players    int    `json:"players"`
 	MaxPlayers int    `json:"max_players"`
 	Passworded bool   `json:"passworded"`
@@ -47,8 +47,8 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 
 	info.Hostname = server.Hostname
 	info.Gamemode = server.Gamemode
-	info.Mapname = server.Mapname
-	info.Version = server.Version
+	info.Mapname = server.Language // <- use Language for mapname
+	info.Version = "Unknown"       // <- version not exposed in this lib
 	info.Players = server.Players
 	info.MaxPlayers = server.MaxPlayers
 	info.Passworded = server.Password
