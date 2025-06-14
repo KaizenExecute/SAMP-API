@@ -62,8 +62,24 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
+func serverPathHandler(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/server/")
+	if path == "" || !strings.Contains(path, ":") {
+		http.Error(w, `{"error":"Missing or invalid IP. Use /api/server/127.0.0.1:7777"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Reuse the serverHandler by injecting the IP as a query param
+	q := r.URL.Query()
+	q.Set("ip", path)
+	r.URL.RawQuery = q.Encode()
+
+	serverHandler(w, r)
+}
+
 func main() {
-	http.HandleFunc("/api/server", serverHandler)
-	log.Println("✅ API running on http://0.0.0.0:3000/api/server?ip=127.0.0.1:7777")
+	http.HandleFunc("/api/server/", serverPathHandler) // path-style endpoint
+	http.HandleFunc("/api/server", serverHandler)      // query-style endpoint
+	log.Println("✅ API running on http://0.0.0.0:3000/api/server/127.0.0.1:7777 or ?ip=127.0.0.1:7777")
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }
