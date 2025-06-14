@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Southclaws/go-samp-query/sampquery"
+	"github.com/Southclaws/go-samp-query/query"
 )
 
 type ServerInfo struct {
