@@ -11,7 +11,7 @@ A simple, lightweight, and fast API to query SA-MP (San Andreas Multiplayer) or 
 
 ## 📦 API Endpoints
 
-### `GET https://ainsoft.xyz/api/server`
+### `GET https://ainsoft.xyz/api/server/`
 
 Returns server info.
 
