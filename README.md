@@ -1,13 +1,49 @@
-# SA-MP / Open.MP Server Info API
+# 🌐 SAMP-API
 
-A simple REST API to query any SA-MP or Open.MP server and get:
+A simple, lightweight, and fast API to query SA-MP (San Andreas Multiplayer) or Open.MP servers and retrieve live server details and player data in JSON format.
 
-- Server hostname, gamemode, language
-- Player list with name, score, and ping
+## 🔧 Features
 
-## 🔧 How to Run
+- Query any public SA-MP or Open.MP server
+- Get server information (hostname, gamemode, version, players, etc.)
+- REST API using Go (Golang)
+- Supports IP:Port input format
 
-### 1. Install dependencies
+## 📦 API Endpoints
 
-```bash
-pip install -r requirements.txt
+### `GET https://ainsoft.xyz/api/server`
+
+Returns server info.
+
+**Example:**
+
+**Response:**
+```json
+{
+  "ip": "104.234.180.32:7777",
+  "hostname": "Montreal Global City RolePlay",
+  "gamemode": "MGC:RP v7.8.1",
+  "version": "omp 1.4.0.2783",
+  "players": 46,
+  "max_players": 300,
+  "passworded": false,
+  "isOmp": true
+}
+```
+---
+
+❗ Notes
+
+Works with both SA-MP and Open.MP servers
+
+Make sure the server IP is correct and public
+
+Port must be open and accessible for queries
+
+
+
+---
+
+🤝 License
+
+MIT License © 2025 KaizenExecute
