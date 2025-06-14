@@ -57,7 +57,7 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 		return ServerInfo{}, fmt.Errorf("read error: %v", err)
 	}
 	if n < 11 {
-		return ServerInfo{}, fmt.Errorf("invalid response length")
+		return ServerInfo{}, fmt.Errorf("invalid response")
 	}
 
 	offset := 11 // skip header
@@ -68,12 +68,12 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 		}
 		length := int(buffer[offset])
 		offset++
-		if offset+length > len(buffer) || length <= 0 {
+		if offset+length > len(buffer) {
 			return ""
 		}
 		s := string(buffer[offset : offset+length])
 		offset += length
-		return strings.Trim(s, "\x00")
+		return s
 	}
 
 	hostname := readString()
@@ -81,9 +81,8 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 	mapname := readString()
 
 	if offset+2 > len(buffer) {
-		return ServerInfo{}, fmt.Errorf("not enough bytes for players info")
+		return ServerInfo{}, fmt.Errorf("unexpected end of packet while reading players")
 	}
-
 	players := int(buffer[offset])
 	offset++
 	maxPlayers := int(buffer[offset])
@@ -99,7 +98,7 @@ func queryServer(ip string, port int) (ServerInfo, error) {
 		Version:    version,
 		Players:    players,
 		MaxPlayers: maxPlayers,
-		Passworded: false, // optional: implement later
+		Passworded: false, // You can add password query later
 	}, nil
 }
 
@@ -143,6 +142,6 @@ func main() {
 	http.HandleFunc("/api", statusHandler)
 
 	port := "3000"
-	log.Printf("✅ API running at: http://0.0.0.0:%s/api", port)
+	log.Printf("✅ API running on http://localhost:%s/api", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
