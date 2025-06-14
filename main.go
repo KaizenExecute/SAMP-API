@@ -15,11 +15,11 @@ type ServerInfo struct {
 	IP         string `json:"ip"`
 	Hostname   string `json:"hostname"`
 	Gamemode   string `json:"gamemode"`
-	Mapname    string `json:"mapname"`     // <- using Language here
-	Version    string `json:"version"`     // <- not available
+	Version    string `json:"version"`
 	Players    int    `json:"players"`
 	MaxPlayers int    `json:"max_players"`
 	Passworded bool   `json:"passworded"`
+	IsOmp      bool   `json:"isOmp"`
 	Error      string `json:"error,omitempty"`
 }
 
@@ -45,20 +45,21 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	version := server.Rules["version"]
+
 	info.Hostname = server.Hostname
 	info.Gamemode = server.Gamemode
-	info.Mapname = server.Language // <- use Language for mapname
-	info.Version = "Unknown"       // <- version not exposed in this lib
+	info.Version = version
 	info.Players = server.Players
 	info.MaxPlayers = server.MaxPlayers
 	info.Passworded = server.Password
+	info.IsOmp = server.IsOmp
 
 	json.NewEncoder(w).Encode(info)
 }
 
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
-
-	log.Println("🌐 Running on http://0.0.0.0:3000/api/server?ip=127.0.0.1:7777")
+	log.Println("✅ API running on http://0.0.0.0:3000/api/server?ip=127.0.0.1:7777")
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }
