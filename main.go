@@ -45,7 +45,11 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version := server.Rules["version"]
+	// Safe version check
+	version := ""
+	if v, ok := server.Rules["version"]; ok {
+		version = v
+	}
 
 	info.Hostname = server.Hostname
 	info.Gamemode = server.Gamemode
