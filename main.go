@@ -29,6 +29,26 @@ type Player struct {
 	Ping  int    `json:"ping"`
 }
 
+// Custom function to query player list using sampquery
+func GetPlayers(ctx context.Context, address string, detectOmp bool) ([]Player, error) {
+	client := sampquery.NewClient()
+	resp, err := client.Query(ctx, address, sampquery.PACKET_TYPE_PLAYER, detectOmp)
+	if err != nil {
+		return nil, err
+	}
+
+	players := make([]Player, len(resp.Players))
+	for i, p := range resp.Players {
+		players[i] = Player{
+			Name:  p.Name,
+			Score: p.Score,
+			Ping:  p.Ping,
+		}
+	}
+
+	return players, nil
+}
+
 func serverHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
@@ -51,7 +71,6 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Safe version check
 	version := ""
 	if v, ok := server.Rules["version"]; ok {
 		version = v
@@ -81,29 +100,20 @@ func playersHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	players, err := sampquery.GetPlayers(ctx, ip, true)
+	players, err := GetPlayers(ctx, ip, true)
 	if err != nil {
 		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 		return
 	}
 
-	var result []Player
-	for _, p := range players {
-		result = append(result, Player{
-			Name:  p.Name,
-			Score: p.Score,
-			Ping:  p.Ping,
-		})
-	}
-
-	json.NewEncoder(w).Encode(result)
+	json.NewEncoder(w).Encode(players)
 }
 
 func main() {
 	http.HandleFunc("/api/server", serverHandler)
 	http.HandleFunc("/api/players", playersHandler)
 
-	log.Println("✅ API running on http://0.0.0.0:3000/api/server?ip=127.0.0.1:7777")
-	log.Println("✅ Players endpoint: http://0.0.0.0:3000/api/players?ip=127.0.0.1:7777")
+	log.Println("✅ API running at http://0.0.0.0:3000/api/server?ip=127.0.0.1:7777")
+	log.Println("✅ Player list at http://0.0.0.0:3000/api/players?ip=127.0.0.1:7777")
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }
