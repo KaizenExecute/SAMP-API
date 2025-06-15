@@ -35,7 +35,7 @@ const (
 	contentType    = "application/json"
 )
 
-
+// getAccuratePlayerCount queries detailed player list (opcode 'd') and returns actual player count.
 func getAccuratePlayerCount(ctx context.Context, address string) (int, error) {
 	conn, err := net.DialTimeout("udp", address, defaultTimeout)
 	if err != nil {
@@ -43,9 +43,7 @@ func getAccuratePlayerCount(ctx context.Context, address string) (int, error) {
 	}
 	defer conn.Close()
 
-	// Build query packet
-	buf := bytes.NewBuffer([]byte{})
-	buf.Write([]byte("SAMP"))
+	buf := bytes.NewBuffer([]byte("SAMP"))
 
 	host, port, _ := net.SplitHostPort(address)
 	ip := net.ParseIP(host).To4()
@@ -53,45 +51,34 @@ func getAccuratePlayerCount(ctx context.Context, address string) (int, error) {
 		return 0, fmt.Errorf("invalid IP")
 	}
 
-	for i := 0; i < 4; i++ {
-		buf.WriteByte(ip[i])
-	}
+	buf.Write(ip)
 
-	// Convert port to uint16
 	var portNum uint16
-	_, err = fmt.Sscanf(port, "%d", &portNum)
-	if err != nil {
+	if _, err := fmt.Sscanf(port, "%d", &portNum); err != nil {
 		return 0, err
 	}
-	binary.Write(buf, binary.LittleEndian, portNum)
+	_ = binary.Write(buf, binary.LittleEndian, portNum)
 
-	// Opcode for detailed player list
-	buf.WriteByte('d')
+	buf.WriteByte('d') // opcode for detailed player list
 
-	// Send packet
-	_, err = conn.Write(buf.Bytes())
-	if err != nil {
+	if _, err := conn.Write(buf.Bytes()); err != nil {
 		return 0, err
 	}
 
-	// Set timeout and read response
 	_ = conn.SetReadDeadline(time.Now().Add(defaultTimeout))
 	resp := make([]byte, 2048)
 	n, err := conn.Read(resp)
 	if err != nil {
 		return 0, err
 	}
-
-	if n < 11 {
+	if n < 12 {
 		return 0, fmt.Errorf("invalid response length")
 	}
 
-	// First byte after 11-byte header is player count
-	numPlayers := int(resp[11])
-	return numPlayers, nil
+	return int(resp[11]), nil
 }
 
-
+// serverHandler handles both /api/server and ?ip= format
 func serverHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", contentType)
@@ -121,9 +108,8 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 	info.Passworded = server.Password
 	info.IsOmp = server.IsOmp
 
-	// ✅ Accurate player count
-	playerCount, perr := getAccuratePlayerCount(ctx, ip)
-	if perr == nil {
+	// Accurate player count override
+	if playerCount, err := getAccuratePlayerCount(ctx, ip); err == nil {
 		info.Players = playerCount
 	} else {
 		info.Players = server.Players // fallback
@@ -132,6 +118,7 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(info)
 }
 
+// serverPathHandler handles /api/server/{ip:port}
 func serverPathHandler(w http.ResponseWriter, r *http.Request) {
 	ip := strings.TrimPrefix(r.URL.Path, apiPrefix)
 	if !isValidIP(ip) {
@@ -139,7 +126,7 @@ func serverPathHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward to query-style handler by injecting IP into query
+	// Forward to query-style handler
 	q := r.URL.Query()
 	q.Set("ip", ip)
 	r.URL.RawQuery = q.Encode()
