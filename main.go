@@ -56,10 +56,17 @@ func serverHandler(w http.ResponseWriter, r *http.Request) {
 	info.Hostname = server.Hostname
 	info.Gamemode = server.Gamemode
 	info.Version = server.Rules["version"]
-	info.Players = server.Players
 	info.MaxPlayers = server.MaxPlayers
 	info.Passworded = server.Password
 	info.IsOmp = server.IsOmp
+
+	// ✅ Accurate player count using GetPlayers
+	players, perr := sampquery.GetPlayers(ctx, ip, true)
+	if perr == nil {
+		info.Players = len(players)
+	} else {
+		info.Players = server.Players // fallback if player list fails
+	}
 
 	_ = json.NewEncoder(w).Encode(info)
 }
