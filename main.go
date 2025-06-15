@@ -35,7 +35,7 @@ const (
 	contentType    = "application/json"
 )
 
-// Manually query player list from SA-MP/Open.MP server
+
 func getAccuratePlayerCount(ctx context.Context, address string) (int, error) {
 	conn, err := net.DialTimeout("udp", address, defaultTimeout)
 	if err != nil {
@@ -46,19 +46,27 @@ func getAccuratePlayerCount(ctx context.Context, address string) (int, error) {
 	// Build query packet
 	buf := bytes.NewBuffer([]byte{})
 	buf.Write([]byte("SAMP"))
+
 	host, port, _ := net.SplitHostPort(address)
 	ip := net.ParseIP(host).To4()
-	p, _ := fmt.Sscanf(port, "%d", new(int))
-	binary.Write(buf, binary.LittleEndian, ip[0])
-	binary.Write(buf, binary.LittleEndian, ip[1])
-	binary.Write(buf, binary.LittleEndian, ip[2])
-	binary.Write(buf, binary.LittleEndian, ip[3])
-	portNum := make([]byte, 2)
-	portVal := buf.Bytes()[9:]
-	copy(portNum, portVal)
-	portShort := binary.LittleEndian.Uint16(portNum)
-	binary.Write(buf, binary.LittleEndian, portShort)
-	buf.WriteByte('d') // player list opcode
+	if ip == nil {
+		return 0, fmt.Errorf("invalid IP")
+	}
+
+	for i := 0; i < 4; i++ {
+		buf.WriteByte(ip[i])
+	}
+
+	// Convert port to uint16
+	var portNum uint16
+	_, err = fmt.Sscanf(port, "%d", &portNum)
+	if err != nil {
+		return 0, err
+	}
+	binary.Write(buf, binary.LittleEndian, portNum)
+
+	// Opcode for detailed player list
+	buf.WriteByte('d')
 
 	// Send packet
 	_, err = conn.Write(buf.Bytes())
@@ -66,23 +74,23 @@ func getAccuratePlayerCount(ctx context.Context, address string) (int, error) {
 		return 0, err
 	}
 
-	// Set read deadline
+	// Set timeout and read response
 	_ = conn.SetReadDeadline(time.Now().Add(defaultTimeout))
-
-	// Read response
 	resp := make([]byte, 2048)
 	n, err := conn.Read(resp)
 	if err != nil {
 		return 0, err
 	}
 
-	// First 11 bytes = header
 	if n < 11 {
-		return 0, fmt.Errorf("invalid response")
+		return 0, fmt.Errorf("invalid response length")
 	}
+
+	// First byte after 11-byte header is player count
 	numPlayers := int(resp[11])
 	return numPlayers, nil
 }
+
 
 func serverHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
